@@ -202,7 +202,7 @@ fn main() -> ! {
         let pressed_a: bool = button_a.is_low().unwrap();
         if pressed_a {
             editor_state = match editor_state {
-                (Editor::H, _, _) => editor_state,
+                (Editor::H, _, hsv) => (Editor::V, leds_v, hsv),
                 (Editor::S, _, hsv) => (Editor::H, leds_h, hsv),
                 (Editor::V, _, hsv) => (Editor::S, leds_s, hsv),
             };
@@ -213,7 +213,7 @@ fn main() -> ! {
             editor_state = match editor_state {
                 (Editor::H, _, hsv) => (Editor::S, leds_s, hsv),
                 (Editor::S, _, hsv) => (Editor::V, leds_v, hsv),
-                (Editor::V, _, _) => editor_state,
+                (Editor::V, _, hsv) => (Editor::H, leds_h, hsv),
             };
         }
 
