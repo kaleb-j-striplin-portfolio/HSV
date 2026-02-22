@@ -6,7 +6,7 @@ use critical_section_lock_mut::LockMut;
 use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 
-use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin}};
+use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin, InputPin}};
 use microbit::{
     adc::{Adc, AdcConfig},
     board::Board,
@@ -59,12 +59,13 @@ impl RgbDisplay {
 
     /// Set up a new schedule, to be started next frame.
     fn set(&mut self, hsv: &Hsv) {
-        // let rgb = hsv.to_rgb();
-        // let r_steps = (rgb.r * STEPS_PER_FRAME) as u32;
-        // let g_steps = (rgb.g * STEPS_PER_FRAME) as u32;
-        // let b_steps = (rgb.b * STEPS_PER_FRAME) as u32;
-        // self.next_schedule = Some([r_steps, g_steps, b_steps]);
-        self.next_schedule = Some([80, 20, 50]);
+        let rgb = hsv.to_rgb();
+        let r_steps = (rgb.r * STEPS_PER_FRAME) as u32;
+        let g_steps = (rgb.g * STEPS_PER_FRAME) as u32;
+        let b_steps = (rgb.b * STEPS_PER_FRAME) as u32;
+        self.next_schedule = Some([r_steps, g_steps, b_steps]);
+        // test color magenta
+        // self.next_schedule = Some([80, 20, 50]);
     }
 
     /// Take the next frame update step. Called at startup
@@ -93,7 +94,6 @@ impl RgbDisplay {
         for t in self.schedule.into_iter().enumerate() {
             // turn off the rgbs that are 0
             if self.tick >= t.1 {
-                //&& self.rgb_pins[t.0].is_set_high().unwrap() 
                 self.rgb_pins[t.0].set_high().unwrap();
             }
             // find the next timer value to set
@@ -119,12 +119,20 @@ fn TIMER0() {
     RGB_DISPLAY.with_lock(|display| display.step());
 }
 
+enum Editor {
+    H,
+    S,
+    V
+}
+
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
     let board = Board::take().unwrap();
     let timer0 = Timer::new(board.TIMER0);
     let mut timer1 = Timer::new(board.TIMER1);
+    let mut button_a = board.buttons.button_a;
+    let mut button_b = board.buttons.button_b;
     let pin_r = board.edge.e08.into_push_pull_output(Level::Low);
     let pin_g = board.edge.e09.into_push_pull_output(Level::Low);
     let pin_b = board.edge.e16.into_push_pull_output(Level::Low);
@@ -138,6 +146,25 @@ fn main() -> ! {
         [1, 0, 0, 0, 1],
         [1, 0, 0, 0, 1],
     ];
+
+    let leds_s: [[u8; 5]; 5] = [
+        [1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 1],
+    ];
+
+    let leds_v: [[u8; 5]; 5] = [
+        [1, 0, 0, 0, 1],
+        [1, 0, 0, 0, 1],
+        [0, 1, 0, 1, 0],
+        [0, 1, 0, 1, 0],
+        [0, 0, 1, 0, 0],
+    ];
+
+    
+    let mut editor_state:(Editor, [[u8; 5]; 5]) = (Editor::H, leds_h);
     let mut mb2_display: Display = Display::new(board.display_pins);
 
     let pins = [pin_r.degrade(), pin_g.degrade(), pin_b.degrade()];
@@ -153,9 +180,25 @@ fn main() -> ! {
 
     loop {
         // Check for button press and change the edited component of HSV if so.
+        let pressed_a: bool = button_a.is_low().unwrap();
+        if pressed_a {
+            editor_state = match editor_state {
+                (Editor::H, _) => editor_state,
+                (Editor::S, _) => (Editor::H, leds_h),
+                (Editor::V, _) => (Editor::S, leds_s),
+            };
+        }
+
+        let pressed_b: bool = button_b.is_low().unwrap();
+        if pressed_b {
+            editor_state = match editor_state {
+                (Editor::H, _) => (Editor::S, leds_s),
+                (Editor::S, _) => (Editor::V, leds_v),
+                (Editor::V, _) => editor_state,
+            };
+        }
 
         // Read the potentiometer value and use it to set the value of the edited component of HSV.
-
         let _adc_reading = adc.read_channel(&mut pin_pot).unwrap();
         // rprintln!("adc reading: {}", adc_reading);
 
@@ -171,6 +214,6 @@ fn main() -> ! {
         });
 
         // Block in the MB2 LED display showing the correct component letter for 100 ms.
-        mb2_display.show(&mut timer1, leds_h, 100);
+        mb2_display.show(&mut timer1, editor_state.1, 100);
     }
 }
