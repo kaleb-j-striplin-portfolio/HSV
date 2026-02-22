@@ -85,7 +85,7 @@ impl RgbDisplay {
         // special case for tick 0
         if self.tick == 0 {
             for p in &mut self.rgb_pins {
-                p.set_high().unwrap();
+                p.set_low().unwrap();
             }
         }
 
@@ -94,7 +94,7 @@ impl RgbDisplay {
             // turn off the rgbs that are 0
             if self.tick >= t.1 {
                 //&& self.rgb_pins[t.0].is_set_high().unwrap() 
-                self.rgb_pins[t.0].set_low().unwrap();
+                self.rgb_pins[t.0].set_high().unwrap();
             }
             // find the next timer value to set
             else if t.1 < next_interrupt_tick {
