@@ -1,5 +1,3 @@
-#![no_std]
-
 //! HSV to sRGB conversion.
 //!
 //! Thanks to Claude Code Opus 4.6 for this.
@@ -37,7 +35,11 @@ impl Hsv {
         // x = c * (1 - |h6 mod 2 - 1|)
         // In even sectors frac goes 0→1, so x = c * (1 - (1 - frac)) = c * frac
         // In odd sectors frac goes 0→1, so x = c * (1 - frac)
-        let x = if sector & 1 == 0 { c * frac } else { c * (1.0 - frac) };
+        let x = if sector & 1 == 0 {
+            c * frac
+        } else {
+            c * (1.0 - frac)
+        };
         let m = self.v - c;
 
         let (r1, g1, b1) = match sector {
@@ -50,7 +52,11 @@ impl Hsv {
             _ => (c, 0.0, x), // h >= 1.0 wraps
         };
 
-        Rgb { r: r1 + m, g: g1 + m, b: b1 + m }
+        Rgb {
+            r: r1 + m,
+            g: g1 + m,
+            b: b1 + m,
+        }
     }
 }
 

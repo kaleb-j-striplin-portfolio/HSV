@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 cortex-m-rt = "0.7"
+critical-section = "1.2.0"
+critical-section-lock-mut = "0.1.2"
 embedded-hal = "1.0.0"
 microbit-v2 = "0.16.0"
 panic-rtt-target = "0.2.0"
