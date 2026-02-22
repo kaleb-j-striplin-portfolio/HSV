@@ -24,20 +24,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46afbd2983a5d5a7bd740ccb198caf5b82f45c40c09c0eed36052d91cb92e719"
 
 [[package]]
-name = "blinky-rs"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "critical-section",
- "critical-section-lock-mut",
- "embedded-hal 1.0.0",
- "microbit-v2",
- "panic-rtt-target",
- "rtt-target",
-]
-
-[[package]]
 name = "bytemuck"
 version = "1.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -192,6 +178,20 @@ checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
 dependencies = [
  "hash32",
  "stable_deref_trait",
+]
+
+[[package]]
+name = "hsv"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "critical-section-lock-mut",
+ "embedded-hal 1.0.0",
+ "microbit-v2",
+ "panic-rtt-target",
+ "rtt-target",
 ]
 
 [[package]]

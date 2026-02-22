@@ -4,12 +4,9 @@
 use cortex_m_rt::entry;
 use critical_section_lock_mut::LockMut;
 use panic_rtt_target as _;
-use rtt_target::{rprintln, rtt_init_print};
+use rtt_target::rtt_init_print;
 
-use embedded_hal::{
-    delay::DelayNs,
-    digital::{InputPin, OutputPin, StatefulOutputPin},
-};
+use embedded_hal::digital::{InputPin, OutputPin};
 use microbit::{
     adc::{Adc, AdcConfig},
     board::Board,
@@ -41,9 +38,8 @@ enum Editor {
 fn normalize_adc_reading(adc_reading: i16) -> f32 {
     match adc_reading {
         adc_reading if adc_reading <= POT_CLAMP_MIN => 0.0f32,
-
         adc_reading if adc_reading >= POT_CLAMP_MAX => 1.0f32,
-        _ => (adc_reading as f32) / 16370.0f32,
+        _ => (adc_reading as f32) / (POT_CLAMP_MAX as f32),
     }
 }
 
@@ -82,8 +78,6 @@ impl RgbDisplay {
         let g_steps = (rgb.g * STEPS_PER_FRAME) as u32;
         let b_steps = (rgb.b * STEPS_PER_FRAME) as u32;
         self.next_schedule = Some([r_steps, g_steps, b_steps]);
-        // test color magenta
-        // self.next_schedule = Some([80, 20, 50]);
     }
 
     /// Take the next frame update step. Called at startup
@@ -92,6 +86,7 @@ impl RgbDisplay {
         self.timer0.enable_interrupt();
 
         // special case for tick 100
+        // reset the tick and pick the next schedule
         if self.tick == (STEPS_PER_FRAME as u32) {
             self.tick = 0;
             self.schedule = match self.next_schedule {
@@ -101,6 +96,7 @@ impl RgbDisplay {
         }
 
         // special case for tick 0
+        // start frame with all LEDs on
         if self.tick == 0 {
             for p in &mut self.rgb_pins {
                 p.set_low().unwrap();
@@ -109,7 +105,7 @@ impl RgbDisplay {
 
         let mut next_interrupt_tick = 100;
         for t in self.schedule.into_iter().enumerate() {
-            // turn off the rgbs that are 0
+            // turn off the rgbs below the current tick according to the schedule
             if self.tick >= t.1 {
                 self.rgb_pins[t.0].set_high().unwrap();
             }
@@ -119,7 +115,7 @@ impl RgbDisplay {
             }
         }
 
-        // set the timer
+        // set the timer update the tick
         let next_interrupt_time = (next_interrupt_tick - self.tick) * US_PER_STEP;
         self.timer0.reset_event();
         self.timer0.start(next_interrupt_time);
@@ -127,7 +123,7 @@ impl RgbDisplay {
     }
 }
 
-/// The siren. Accessible from both the interrupt handler
+/// The RgbDisplay. Accessible from both the interrupt handler
 /// and the main program.
 static RGB_DISPLAY: LockMut<RgbDisplay> = LockMut::new();
 
@@ -140,16 +136,27 @@ fn TIMER0() {
 fn main() -> ! {
     rtt_init_print!();
     let board = Board::take().unwrap();
+    // timer0 for the interrupts
     let timer0 = Timer::new(board.TIMER0);
+    // timer1 for the blocking display
     let mut timer1 = Timer::new(board.TIMER1);
+
+    // buttons and display pins for mb2 display UI
     let mut button_a = board.buttons.button_a;
     let mut button_b = board.buttons.button_b;
+    let mut mb2_display: Display = Display::new(board.display_pins);
+
+    // RGB pins from the edge connection
     let pin_r = board.edge.e08.into_push_pull_output(Level::Low);
     let pin_g = board.edge.e09.into_push_pull_output(Level::Low);
     let pin_b = board.edge.e16.into_push_pull_output(Level::Low);
+    let pins = [pin_r.degrade(), pin_g.degrade(), pin_b.degrade()];
+
+    // potentiometer pin and the ADC for reading it.
     let mut pin_pot = board.edge.e02.into_push_pull_output(Level::Low);
     let mut adc = Adc::new(board.ADC, AdcConfig::default());
 
+    // mb2 display values for the UI
     let leds_h: [[u8; 5]; 5] = [
         [1, 0, 0, 0, 1],
         [1, 0, 0, 0, 1],
@@ -174,8 +181,20 @@ fn main() -> ! {
         [0, 0, 1, 0, 0],
     ];
 
-    
-    // set Hsv to magenta test color
+    let rgb_display = RgbDisplay::new(pins, timer0);
+    RGB_DISPLAY.init(rgb_display);
+
+    RGB_DISPLAY.with_lock(|display| display.step());
+
+    // Set up the NVIC to handle interrupts.
+    unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER0) };
+    pac::NVIC::unpend(pac::Interrupt::TIMER0);
+
+    // This tracks the state of the editor in the loop
+    // The editor itself keeps track of:
+    // which component of Hsv is being edited
+    // the mb2 matching display to inform the user
+    // and the hsv values
     let mut editor_state: (Editor, [[u8; 5]; 5], Hsv) = (
         Editor::H,
         leds_h,
@@ -185,17 +204,6 @@ fn main() -> ! {
             v: 0.8,
         },
     );
-    let mut mb2_display: Display = Display::new(board.display_pins);
-
-    let pins = [pin_r.degrade(), pin_g.degrade(), pin_b.degrade()];
-    let rgb_display = RgbDisplay::new(pins, timer0);
-    RGB_DISPLAY.init(rgb_display);
-
-    RGB_DISPLAY.with_lock(|display| display.step());
-
-    // Set up the NVIC to handle interrupts.
-    unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER0) };
-    pac::NVIC::unpend(pac::Interrupt::TIMER0);
 
     loop {
         // Check for button press and change the edited component of HSV if so.
@@ -220,7 +228,6 @@ fn main() -> ! {
         // Read the potentiometer value and use it to set the value of the edited component of HSV.
         let adc_reading = adc.read_channel(&mut pin_pot).unwrap();
         let normalized_adc_reading = normalize_adc_reading(adc_reading);
-        // rprintln!("adc reading: {}, {}", adc_reading, normalized_adc_reading);
 
         // Convert the current floating HSV to an integer RGB schedule to be displayed next frame.
         match editor_state.0 {
@@ -229,9 +236,7 @@ fn main() -> ! {
             Editor::V => editor_state.2.v = normalized_adc_reading,
         }
 
-        RGB_DISPLAY.with_lock(|display| {
-            display.set(&editor_state.2)
-        });
+        RGB_DISPLAY.with_lock(|display| display.set(&editor_state.2));
 
         // Block in the MB2 LED display showing the correct component letter for 100 ms.
         mb2_display.show(&mut timer1, editor_state.1, 100);
