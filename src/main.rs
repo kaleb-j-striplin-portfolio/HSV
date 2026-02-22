@@ -6,7 +6,10 @@ use critical_section_lock_mut::LockMut;
 use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 
-use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin, InputPin}};
+use embedded_hal::{
+    delay::DelayNs,
+    digital::{InputPin, OutputPin, StatefulOutputPin},
+};
 use microbit::{
     adc::{Adc, AdcConfig},
     board::Board,
@@ -21,13 +24,28 @@ use microbit::{
 mod hsv;
 use hsv::*;
 
-const _POT_CLAMP_MIN: u32 = 10;
+const POT_CLAMP_MIN: i16 = 10;
 
-const _POT_CLAMP_MAX: u32 = 16370;
+const POT_CLAMP_MAX: i16 = 16370;
 
 const STEPS_PER_FRAME: f32 = 100f32;
 
 const US_PER_STEP: u32 = 100;
+
+enum Editor {
+    H,
+    S,
+    V,
+}
+
+fn normalize_adc_reading(adc_reading: i16) -> f32 {
+    match adc_reading {
+        adc_reading if adc_reading <= POT_CLAMP_MIN => 0.0f32,
+
+        adc_reading if adc_reading >= POT_CLAMP_MAX => 1.0f32,
+        _ => (adc_reading as f32) / 16370.0f32,
+    }
+}
 
 struct RgbDisplay {
     // What tick of the frame are we currently on?
@@ -71,7 +89,6 @@ impl RgbDisplay {
     /// Take the next frame update step. Called at startup
     /// and then from the timer interrupt handler.
     fn step(&mut self) {
-
         self.timer0.enable_interrupt();
 
         // special case for tick 100
@@ -79,7 +96,7 @@ impl RgbDisplay {
             self.tick = 0;
             self.schedule = match self.next_schedule {
                 Some(schedule) => schedule,
-                None => self.schedule
+                None => self.schedule,
             };
         }
 
@@ -101,7 +118,7 @@ impl RgbDisplay {
                 next_interrupt_tick = t.1;
             }
         }
-               
+
         // set the timer
         let next_interrupt_time = (next_interrupt_tick - self.tick) * US_PER_STEP;
         self.timer0.reset_event();
@@ -117,12 +134,6 @@ static RGB_DISPLAY: LockMut<RgbDisplay> = LockMut::new();
 #[interrupt]
 fn TIMER0() {
     RGB_DISPLAY.with_lock(|display| display.step());
-}
-
-enum Editor {
-    H,
-    S,
-    V
 }
 
 #[entry]
@@ -164,16 +175,24 @@ fn main() -> ! {
     ];
 
     
-    let mut editor_state:(Editor, [[u8; 5]; 5]) = (Editor::H, leds_h);
+    // set Hsv to magenta test color
+    let mut editor_state: (Editor, [[u8; 5]; 5], Hsv) = (
+        Editor::H,
+        leds_h,
+        Hsv {
+            h: 0.9,
+            s: 0.75,
+            v: 0.8,
+        },
+    );
     let mut mb2_display: Display = Display::new(board.display_pins);
 
     let pins = [pin_r.degrade(), pin_g.degrade(), pin_b.degrade()];
     let rgb_display = RgbDisplay::new(pins, timer0);
     RGB_DISPLAY.init(rgb_display);
 
-    // RGB_DISPLAY.with_lock(|display| display.set(&Hsv { h: 0.92, s: 0.75, v: 0.8 }));
     RGB_DISPLAY.with_lock(|display| display.step());
-    
+
     // Set up the NVIC to handle interrupts.
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER0) };
     pac::NVIC::unpend(pac::Interrupt::TIMER0);
@@ -183,34 +202,35 @@ fn main() -> ! {
         let pressed_a: bool = button_a.is_low().unwrap();
         if pressed_a {
             editor_state = match editor_state {
-                (Editor::H, _) => editor_state,
-                (Editor::S, _) => (Editor::H, leds_h),
-                (Editor::V, _) => (Editor::S, leds_s),
+                (Editor::H, _, _) => editor_state,
+                (Editor::S, _, hsv) => (Editor::H, leds_h, hsv),
+                (Editor::V, _, hsv) => (Editor::S, leds_s, hsv),
             };
         }
 
         let pressed_b: bool = button_b.is_low().unwrap();
         if pressed_b {
             editor_state = match editor_state {
-                (Editor::H, _) => (Editor::S, leds_s),
-                (Editor::S, _) => (Editor::V, leds_v),
-                (Editor::V, _) => editor_state,
+                (Editor::H, _, hsv) => (Editor::S, leds_s, hsv),
+                (Editor::S, _, hsv) => (Editor::V, leds_v, hsv),
+                (Editor::V, _, _) => editor_state,
             };
         }
 
         // Read the potentiometer value and use it to set the value of the edited component of HSV.
-        let _adc_reading = adc.read_channel(&mut pin_pot).unwrap();
-        // rprintln!("adc reading: {}", adc_reading);
+        let adc_reading = adc.read_channel(&mut pin_pot).unwrap();
+        let normalized_adc_reading = normalize_adc_reading(adc_reading);
+        // rprintln!("adc reading: {}, {}", adc_reading, normalized_adc_reading);
 
         // Convert the current floating HSV to an integer RGB schedule to be displayed next frame.
+        match editor_state.0 {
+            Editor::H => editor_state.2.h = normalized_adc_reading,
+            Editor::S => editor_state.2.s = normalized_adc_reading,
+            Editor::V => editor_state.2.v = normalized_adc_reading,
+        }
 
-        // set to H 330/360 = 0.92 S .75 V .80 .. test color
         RGB_DISPLAY.with_lock(|display| {
-            display.set(&Hsv {
-                h: 0.9,
-                s: 0.75,
-                v: 0.8,
-            })
+            display.set(&editor_state.2)
         });
 
         // Block in the MB2 LED display showing the correct component letter for 100 ms.
