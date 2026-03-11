@@ -18,8 +18,7 @@ use microbit::{
     },
 };
 
-mod hsv;
-use hsv::*;
+use hsv::Hsv;
 
 const POT_CLAMP_MIN: i16 = 10;
 

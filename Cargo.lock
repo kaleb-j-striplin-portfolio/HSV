@@ -189,10 +189,16 @@ dependencies = [
  "critical-section",
  "critical-section-lock-mut",
  "embedded-hal 1.0.0",
+ "hsv 0.2.0",
  "microbit-v2",
  "panic-rtt-target",
  "rtt-target",
 ]
+
+[[package]]
+name = "hsv"
+version = "0.2.0"
+source = "git+https://github.com/pdx-cs-rust-embedded/hsv#7eba71302d24d7dc8e519e1d1ae274abfafbb0bb"
 
 [[package]]
 name = "microbit-common"
